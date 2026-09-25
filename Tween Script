@@ -1,0 +1,373 @@
+--[[
+    🥚 EGG STEALER TWEEN v3.0 🥚
+    ✔ GUI compacta (menor)
+    ✔ Arraste corrigido (mouse + touch, funciona em qualquer executor)
+    ✔ Tween com NOCIP durante o voo (não trava em parede)
+    ✔ Easing configurável (Linear / Suave / Elástico)
+    ✔ Cancelar | Auto-cancela se morrer | Status ao vivo
+    ✔ Botão flutuante RGB arrastável | RightShift esconde
+]]
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+---------------- CONFIG ----------------
+local savedPoint = nil
+local currentTween = nil
+local tweening = false
+local noclipCon = nil
+
+local EASINGS = {
+    ["Linear"] = Enum.EasingStyle.Linear,
+    ["Suave"] = Enum.EasingStyle.Quad,
+    ["Elástico"] = Enum.EasingStyle.Elastic,
+    ["Rápido"] = Enum.EasingStyle.Exponential,
+}
+local easingAtual = "Suave"
+
+---------------- HELPERS ----------------
+local function getRoot()
+    local char = player.Character
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+local function getChar()
+    return player.Character
+end
+
+local function criarBotao(parent, pos, tamanho, texto, cor, tamanhoTexto)
+    local btn = Instance.new("TextButton")
+    btn.Size = tamanho
+    btn.Position = pos
+    btn.BackgroundColor3 = cor
+    btn.Text = texto
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = tamanhoTexto or 12
+    btn.Parent = parent
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 7)
+    corner.Parent = btn
+    return btn
+end
+
+---------------- GUI (COMPACTA) ----------------
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "EggStealerGui"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+if syn and syn.protect_gui then
+    syn.protect_gui(ScreenGui)
+end
+ScreenGui.Parent = playerGui
+
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Size = UDim2.new(0, 215, 0, 235) -- MENOR
+Main.Position = UDim2.new(0.5, -107, 0.35, 0)
+Main.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.ClipsDescendants = true
+Main.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = Main
+
+local Stroke = Instance.new("UIStroke")
+Stroke.Thickness = 2
+Stroke.Color = Color3.fromRGB(120, 80, 255)
+Stroke.Parent = Main
+
+-- Título
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 26)
+Title.BackgroundTransparency = 1
+Title.Text = "🥚 EGG STEALER v3"
+Title.TextColor3 = Color3.new(1, 1, 1)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 13
+Title.Parent = Main
+
+-- Status
+local Status = Instance.new("TextLabel")
+Status.Size = UDim2.new(1, -16, 0, 16)
+Status.Position = UDim2.new(0, 8, 0, 27)
+Status.BackgroundTransparency = 1
+Status.Text = "📍 Nenhum ponto salvo"
+Status.TextColor3 = Color3.fromRGB(170, 170, 170)
+Status.Font = Enum.Font.Gotham
+Status.TextSize = 10
+Status.TextXAlignment = Enum.TextXAlignment.Left
+Status.Parent = Main
+
+-- Botões principais
+local SaveBtn = criarBotao(Main, UDim2.new(0, 8, 0, 48), UDim2.new(1, -16, 0, 32),
+    "📍 SALVAR PONTO", Color3.fromRGB(255, 85, 85))
+
+local TweenBtn = criarBotao(Main, UDim2.new(0, 8, 0, 84), UDim2.new(1, -16, 0, 32),
+    "🚀 TWEEN", Color3.fromRGB(85, 170, 255))
+
+local CancelBtn = criarBotao(Main, UDim2.new(0, 8, 0, 120), UDim2.new(1, -16, 0, 32),
+    "🛑 CANCELAR", Color3.fromRGB(255, 120, 50))
+
+-- Linha velocidade + easing
+local SpeedLabel = Instance.new("TextLabel")
+SpeedLabel.Size = UDim2.new(0, 60, 0, 26)
+SpeedLabel.Position = UDim2.new(0, 8, 0, 158)
+SpeedLabel.BackgroundTransparency = 1
+SpeedLabel.Text = "⚡ Vel:"
+SpeedLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+SpeedLabel.Font = Enum.Font.Gotham
+SpeedLabel.TextSize = 11
+SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+SpeedLabel.Parent = Main
+
+local SpeedBox = Instance.new("TextBox")
+SpeedBox.Size = UDim2.new(0, 55, 0, 26)
+SpeedBox.Position = UDim2.new(0, 62, 0, 158)
+SpeedBox.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+SpeedBox.Text = "70"
+SpeedBox.TextColor3 = Color3.new(1, 1, 1)
+SpeedBox.Font = Enum.Font.GothamBold
+SpeedBox.TextSize = 12
+SpeedBox.ClearTextOnFocus = false
+SpeedBox.Parent = Main
+local SpeedCorner = Instance.new("UICorner")
+SpeedCorner.CornerRadius = UDim.new(0, 7)
+SpeedCorner.Parent = SpeedBox
+
+local EaseBtn = criarBotao(Main, UDim2.new(0, 123, 0, 158), UDim2.new(0, 84, 0, 26),
+    "Style: Suave", Color3.fromRGB(100, 60, 200), 10)
+
+-- Hint keybind
+local Hint = Instance.new("TextLabel")
+Hint.Size = UDim2.new(1, 0, 0, 14)
+Hint.Position = UDim2.new(0, 0, 1, -18)
+Hint.BackgroundTransparency = 1
+Hint.Text = "[RightShift] esconder | arraste 🥚"
+Hint.TextColor3 = Color3.fromRGB(120, 120, 130)
+Hint.Font = Enum.Font.Gotham
+Hint.TextSize = 9
+Hint.Parent = Main
+
+---------------- BOTÃO FLUTUANTE RGB ----------------
+local FloatBtn = Instance.new("TextButton")
+FloatBtn.Size = UDim2.new(0, 46, 0, 46)
+FloatBtn.Position = UDim2.new(0, 15, 0.5, -23)
+FloatBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+FloatBtn.Text = "🥚"
+FloatBtn.TextSize = 20
+FloatBtn.Font = Enum.Font.GothamBold
+FloatBtn.TextColor3 = Color3.new(1, 1, 1)
+FloatBtn.Active = true
+FloatBtn.Parent = ScreenGui
+
+local FloatCorner = Instance.new("UICorner")
+FloatCorner.CornerRadius = UDim.new(1, 0)
+FloatCorner.Parent = FloatBtn
+
+local FloatStroke = Instance.new("UIStroke")
+FloatStroke.Thickness = 3
+FloatStroke.Parent = FloatBtn
+
+-- RGB loop
+task.spawn(function()
+    local t = 0
+    while FloatBtn.Parent do
+        t = t + 0.04
+        local cor = Color3.fromHSV(t % 1, 1, 1)
+        FloatBtn.BackgroundColor3 = cor
+        FloatStroke.Color = Color3.fromHSV((t + 0.5) % 1, 1, 1)
+        Stroke.Color = cor
+        task.wait(0.03)
+    end
+end)
+
+FloatBtn.MouseButton1Click:Connect(function()
+    Main.Visible = not Main.Visible
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.RightShift then
+        Main.Visible = not Main.Visible
+    end
+end)
+
+---------------- ARRASTE (CORRIGIDO - mouse + touch) ----------------
+local function makeDraggable(frame, handle)
+    handle = handle or frame
+    local dragging = false
+    local dragInput, dragStart, startPos
+
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+        end
+    end)
+
+    handle.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+
+    handle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+makeDraggable(Main)
+makeDraggable(FloatBtn)
+
+---------------- STATUS AO VIVO ----------------
+RunService.RenderStepped:Connect(function()
+    if not savedPoint then
+        Status.Text = "📍 Nenhum ponto salvo"
+        return
+    end
+    local root = getRoot()
+    if root then
+        local dist = math.floor((savedPoint.Position - root.Position).Magnitude)
+        Status.Text = tweening
+            and ("🚀 Viajando | " .. dist .. " studs")
+            or  ("📍 " .. dist .. " studs do ponto")
+    end
+end)
+
+---------------- NOCIP DURANTE O VOO ----------------
+local function ativarNoclip()
+    local char = getChar()
+    if not char then return end
+    noclipCon = RunService.Stepped:Connect(function()
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end)
+end
+
+local function desativarNoclip()
+    if noclipCon then
+        noclipCon:Disconnect()
+        noclipCon = nil
+    end
+    local char = getChar()
+    if char then
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                part.CanCollide = true
+            end
+        end
+        local root = getRoot()
+        if root then root.CanCollide = true end
+    end
+end
+
+---------------- RESET (morte / cancelar) ----------------
+local function resetTween()
+    if currentTween then
+        currentTween:Cancel()
+        currentTween = nil
+    end
+    desativarNoclip()
+    local root = getRoot()
+    if root then root.Anchored = false end
+    tweening = false
+    TweenBtn.Text = "🚀 TWEEN"
+    TweenBtn.BackgroundColor3 = Color3.fromRGB(85, 170, 255)
+end
+
+player.CharacterAdded:Connect(resetTween)
+
+---------------- BOTÕES ----------------
+SaveBtn.MouseButton1Click:Connect(function()
+    local root = getRoot()
+    if not root then return end
+    savedPoint = root.CFrame
+    SaveBtn.Text = "✅ SALVO!"
+    task.wait(0.7)
+    SaveBtn.Text = "📍 SALVAR PONTO"
+end)
+
+CancelBtn.MouseButton1Click:Connect(resetTween)
+
+EaseBtn.MouseButton1Click:Connect(function()
+    local order = {"Suave", "Linear", "Rápido", "Elástico"}
+    for i, name in ipairs(order) do
+        if name == easingAtual then
+            easingAtual = order[(i % #order) + 1]
+            break
+        end
+    end
+    EaseBtn.Text = "Style: " .. easingAtual
+end)
+
+-- TWEEN MELHORADO
+TweenBtn.MouseButton1Click:Connect(function()
+    if tweening then return end
+    local root = getRoot()
+    if not root then return end
+
+    if not savedPoint then
+        TweenBtn.Text = "❌ SALVA UM PONTO!"
+        task.wait(1)
+        TweenBtn.Text = "🚀 TWEEN"
+        return
+    end
+
+    local speed = math.max(tonumber(SpeedBox.Text) or 70, 1)
+    local distance = (savedPoint.Position - root.Position).Magnitude
+    local tempo = distance / speed
+
+    tweening = true
+    TweenBtn.Text = "⏳ VIAJANDO..."
+    TweenBtn.BackgroundColor3 = Color3.fromRGB(255, 170, 0)
+
+    root.Anchored = true
+    ativarNoclip() -- atravessa parede e players no caminho 👀
+
+    currentTween = TweenService:Create(
+        root,
+        TweenInfo.new(tempo, EASINGS[easingAtual]),
+        {CFrame = savedPoint}
+    )
+    currentTween:Play()
+
+    local con
+    con = currentTween.Completed:Connect(function()
+        con:Disconnect()
+        desativarNoclip()
+        root.Anchored = false
+        tweening = false
+        currentTween = nil
+        TweenBtn.Text = "🚀 TWEEN"
+        TweenBtn.BackgroundColor3 = Color3.fromRGB(85, 170, 255)
+    end)
+end)
